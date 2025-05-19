@@ -1,4 +1,5 @@
 use chrono::{Local, NaiveDate};
+use clap::{Parser, Subcommand};
 use rand::rng;
 use rand::seq::IndexedRandom;
 use serde::{Deserialize, Serialize};
@@ -7,14 +8,34 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-const MEMO_DIR: &str = r"D:\Markdown Files\Memo";
-const RECORD_FILE: &str = r"D:\Code\Rust\memo\review_history.json";
 const FILES_PER_DAY: usize = 3;
 const BASIC_WEIGHT: f64 = 10.0;
 const MINIMUM_WEIGHT: f64 = 1.0;
 const DECAY_RATE: f64 = 0.96;
 
 const VAULT_NAME: &str = "memo";
+
+#[derive(Parser)]
+#[command(name = "memo", about = "Scientific memorizing helper.")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Dive into the "101" subdir.
+    #[command(alias = "101")]
+    Code101,
+
+    /// Dive into the "301" subdir.
+    #[command(alias = "301")]
+    Code301,
+
+    /// Dive into the "408" subdir.
+    #[command(alias = "408")]
+    Code408,
+}
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 struct ReviewInfo {
@@ -23,10 +44,21 @@ struct ReviewInfo {
 }
 
 fn main() {
-    let today = Local::now().date_naive();
-    let mut review_data: HashMap<String, ReviewInfo> = load_record();
+    let cli = Cli::parse();
 
-    let md_files: Vec<PathBuf> = WalkDir::new(MEMO_DIR)
+    let subdir = match &cli.command {
+        Commands::Code101 => "101",
+        Commands::Code301 => "301",
+        Commands::Code408 => "408",
+    };
+
+    let dir = format!(r"D:\Markdown Files\Memo\{}", subdir);
+    let rev = format!(r"D:\Code\Rust\memo\revs\revs-{}.json", subdir);
+
+    let today = Local::now().date_naive();
+    let mut review_data: HashMap<String, ReviewInfo> = load_record(&rev);
+
+    let md_files: Vec<PathBuf> = WalkDir::new(dir)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| e.path().is_file() && e.path().extension().is_some_and(|ext| ext == "md"))
@@ -93,7 +125,7 @@ fn main() {
         modify_review_data(&mut review_data, path_str, today);
     }
 
-    save_record(&review_data);
+    save_record(&review_data, &rev);
 }
 
 fn weight(
@@ -143,16 +175,16 @@ fn modify_review_data(
         });
 }
 
-fn load_record() -> HashMap<String, ReviewInfo> {
-    if let Ok(data) = fs::read_to_string(RECORD_FILE) {
+fn load_record(rev: &str) -> HashMap<String, ReviewInfo> {
+    if let Ok(data) = fs::read_to_string(rev) {
         serde_json::from_str(&data).unwrap_or_default()
     } else {
         HashMap::new()
     }
 }
 
-fn save_record(data: &HashMap<String, ReviewInfo>) {
+fn save_record(data: &HashMap<String, ReviewInfo>, rev: &str) {
     if let Ok(json) = serde_json::to_string_pretty(data) {
-        let _ = fs::write(RECORD_FILE, json);
+        let _ = fs::write(rev, json);
     }
 }
