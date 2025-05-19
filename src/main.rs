@@ -1,0 +1,158 @@
+use chrono::{Local, NaiveDate};
+use rand::rng;
+use rand::seq::IndexedRandom;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
+
+const MEMO_DIR: &str = r"D:\Markdown Files\Memo";
+const RECORD_FILE: &str = r"D:\Code\Rust\memo\review_history.json";
+const FILES_PER_DAY: usize = 3;
+const BASIC_WEIGHT: f64 = 10.0;
+const MINIMUM_WEIGHT: f64 = 1.0;
+const DECAY_RATE: f64 = 0.96;
+
+const VAULT_NAME: &str = "memo";
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+struct ReviewInfo {
+    last_reviewed: Option<NaiveDate>,
+    review_count: u32,
+}
+
+fn main() {
+    let today = Local::now().date_naive();
+    let mut review_data: HashMap<String, ReviewInfo> = load_record();
+
+    let md_files: Vec<PathBuf> = WalkDir::new(MEMO_DIR)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.path().is_file() && e.path().extension().is_some_and(|ext| ext == "md"))
+        .map(|e| e.path().to_path_buf())
+        .collect();
+
+    let mut weighted_files = Vec::new();
+    let total_days = (md_files.len() as f64 * 2.0 / FILES_PER_DAY as f64).ceil() as i64;
+
+    for file in &md_files {
+        let file_name = file.to_string_lossy().to_string();
+        let weight = weight(file, &review_data, today, total_days);
+        let entry = review_data
+            .entry(file_name)
+            .or_insert(ReviewInfo::default());
+        println!(
+            "{:>3} {} {} {}",
+            weight,
+            match entry.last_reviewed {
+                Some(date) => date.to_string(),
+                None => format!("{:>10}", "N/A"),
+            },
+            entry.review_count,
+            file.file_stem().unwrap().to_string_lossy(),
+        );
+        for _ in 0..weight {
+            weighted_files.push(file.clone());
+        }
+    }
+
+    println!();
+
+    let mut rng = rng();
+    let mut unique_files = HashSet::new();
+    let mut selected = Vec::new();
+
+    for file in weighted_files.choose_multiple(&mut rng, weighted_files.len()) {
+        if unique_files.insert(file) {
+            selected.push(file.clone());
+            if selected.len() == FILES_PER_DAY {
+                break;
+            }
+        }
+    }
+
+    for file in &selected {
+        let path_str = file.to_string_lossy().to_string();
+        let cur_count = review_data
+            .get(&path_str)
+            .map(|e| e.review_count)
+            .unwrap_or_default()
+            + 1;
+
+        if let Some(file_name) = file.file_stem() {
+            let file_name = file_name.to_string_lossy();
+            let encoded = urlencoding::encode(&file_name);
+            let uri = format!("obsidian://open?vault={}&file={}", VAULT_NAME, encoded);
+            println!(
+                "\x1b]8;;{0}\x1b\\{1} ({2})\x1b]8;;\x1b\\",
+                uri, file_name, cur_count
+            );
+        }
+
+        modify_review_data(&mut review_data, path_str, today);
+    }
+
+    save_record(&review_data);
+}
+
+fn weight(
+    file: &Path,
+    review_data: &HashMap<String, ReviewInfo>,
+    today: NaiveDate,
+    total_days: i64,
+) -> usize {
+    let path_str = file.to_string_lossy().to_string();
+    let info = review_data.get(&path_str);
+    let last_review = info.and_then(|i| i.last_reviewed);
+    let review_count = info.map_or(0, |i| i.review_count);
+
+    let priority_score = if review_count == 0 {
+        100.0
+    } else {
+        let days_since_last = last_review.map_or(total_days, |d| (today - d).num_days().max(0));
+        let retention = DECAY_RATE.powi(days_since_last as i32);
+        (1.0 - retention) * 100.0
+    };
+
+    let review_penalty = if review_count == 0 {
+        0.0
+    } else {
+        (review_count as f64).ln() * 5.0
+    };
+
+    let adjusted_weight = (BASIC_WEIGHT + priority_score - review_penalty).max(MINIMUM_WEIGHT);
+
+    adjusted_weight.round() as usize
+}
+
+fn modify_review_data(
+    review_data: &mut HashMap<String, ReviewInfo>,
+    path_str: String,
+    today: NaiveDate,
+) {
+    review_data
+        .entry(path_str)
+        .and_modify(|e| {
+            e.review_count += 1;
+            e.last_reviewed = Some(today);
+        })
+        .or_insert(ReviewInfo {
+            last_reviewed: Some(today),
+            review_count: 1,
+        });
+}
+
+fn load_record() -> HashMap<String, ReviewInfo> {
+    if let Ok(data) = fs::read_to_string(RECORD_FILE) {
+        serde_json::from_str(&data).unwrap_or_default()
+    } else {
+        HashMap::new()
+    }
+}
+
+fn save_record(data: &HashMap<String, ReviewInfo>) {
+    if let Ok(json) = serde_json::to_string_pretty(data) {
+        let _ = fs::write(RECORD_FILE, json);
+    }
+}
