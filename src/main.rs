@@ -20,6 +20,12 @@ const VAULT_NAME: &str = "memo";
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    #[arg(long)]
+    dry: bool,
+
+    #[arg(long)]
+    top: bool,
 }
 
 #[derive(Subcommand)]
@@ -44,9 +50,9 @@ struct ReviewInfo {
 }
 
 fn main() {
-    let cli = Cli::parse();
+    let Cli { command, dry, top } = Cli::parse();
 
-    let subdir = match &cli.command {
+    let subdir = match command {
         Commands::Code101 => "101",
         Commands::Code301 => "301",
         Commands::Code408 => "408",
@@ -65,37 +71,59 @@ fn main() {
         .map(|e| e.path().to_path_buf())
         .collect();
 
-    let mut weighted_files = Vec::new();
+    let mut pool = Vec::new();
+    let mut weights = Vec::new();
     let total_days = (md_files.len() as f64 * 2.0 / FILES_PER_DAY as f64).ceil() as i64;
 
     for file in &md_files {
         let file_name = file.to_string_lossy().to_string();
         let weight = weight(file, &review_data, today, total_days);
-        let entry = review_data
-            .entry(file_name)
-            .or_insert(ReviewInfo::default());
+        let entry = review_data.entry(file_name).or_default();
         println!(
-            "{:>3} {} {} {}",
+            "{:>3} | {:>10} | {:>2} | {}",
             weight,
-            match entry.last_reviewed {
-                Some(date) => date.to_string(),
-                None => format!("{:>10}", "N/A"),
-            },
+            entry
+                .last_reviewed
+                .map_or_else(|| "N/A".to_string(), |date| date.to_string()),
             entry.review_count,
             file.file_stem().unwrap().to_string_lossy(),
         );
-        for _ in 0..weight {
-            weighted_files.push(file.clone());
+
+        if top {
+            weights.push((weight, file.clone()));
+        } else if !dry {
+            for _ in 0..weight {
+                pool.push(file.clone());
+            }
         }
     }
 
     println!();
 
+    if top {
+        weights.sort_by_key(|w| w.0);
+
+        for _ in 0..FILES_PER_DAY {
+            let file = weights.pop().unwrap().1;
+            show_link(&file, &review_data);
+        }
+
+        if !dry {
+            save_record(&review_data, &rev);
+        }
+
+        return;
+    }
+
+    if dry {
+        return;
+    }
+
     let mut rng = rng();
     let mut unique_files = HashSet::new();
     let mut selected = Vec::new();
 
-    for file in weighted_files.choose_multiple(&mut rng, weighted_files.len()) {
+    for file in pool.choose_multiple(&mut rng, pool.len()) {
         if unique_files.insert(file) {
             selected.push(file.clone());
             if selected.len() == FILES_PER_DAY {
@@ -105,23 +133,7 @@ fn main() {
     }
 
     for file in &selected {
-        let path_str = file.to_string_lossy().to_string();
-        let cur_count = review_data
-            .get(&path_str)
-            .map(|e| e.review_count)
-            .unwrap_or_default()
-            + 1;
-
-        if let Some(file_name) = file.file_stem() {
-            let file_name = file_name.to_string_lossy();
-            let encoded = urlencoding::encode(&file_name);
-            let uri = format!("obsidian://open?vault={}&file={}", VAULT_NAME, encoded);
-            println!(
-                "\x1b]8;;{0}\x1b\\{1} ({2})\x1b]8;;\x1b\\",
-                uri, file_name, cur_count
-            );
-        }
-
+        let path_str = show_link(file, &review_data);
         modify_review_data(&mut review_data, path_str, today);
     }
 
@@ -156,6 +168,27 @@ fn weight(
     let adjusted_weight = (BASIC_WEIGHT + priority_score - review_penalty).max(MINIMUM_WEIGHT);
 
     adjusted_weight.round() as usize
+}
+
+fn show_link(file: &Path, review_data: &HashMap<String, ReviewInfo>) -> String {
+    let path_str = file.to_string_lossy().to_string();
+    let cur_count = review_data
+        .get(&path_str)
+        .map(|e| e.review_count)
+        .unwrap_or_default()
+        + 1;
+
+    if let Some(file_name) = file.file_stem() {
+        let file_name = file_name.to_string_lossy();
+        let encoded = urlencoding::encode(&file_name);
+        let uri = format!("obsidian://open?vault={}&file={}", VAULT_NAME, encoded);
+        println!(
+            "\x1b]8;;{0}\x1b\\{1} ({2})\x1b]8;;\x1b\\",
+            uri, file_name, cur_count
+        );
+    }
+
+    path_str
 }
 
 fn modify_review_data(
