@@ -1,11 +1,12 @@
-use chrono::{Local, NaiveDate};
-use clap::{Parser, Subcommand};
-use rand::rng;
-use rand::seq::IndexedRandom;
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use chrono::{Local, NaiveDate};
+use clap::{Parser, Subcommand};
+use rand::rng;
+use rand::seq::{IndexedRandom, SliceRandom};
+use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 const FILES_PER_DAY: usize = 3;
@@ -91,7 +92,7 @@ fn main() {
 
         if top {
             weights.push((weight, file.clone()));
-        } else if !dry {
+        } else {
             for _ in 0..weight {
                 pool.push(file.clone());
             }
@@ -99,27 +100,26 @@ fn main() {
     }
 
     println!();
+    let mut rng = rng();
 
     if top {
-        weights.sort_by_key(|w| w.0);
+        weights.shuffle(&mut rng);
+        weights.sort_unstable_by_key(|w| w.0);
 
         for _ in 0..FILES_PER_DAY {
             let file = weights.pop().unwrap().1;
-            show_link(&file, &review_data);
+            let path_str = show_link(&file, &review_data);
+            modify_review_data(&mut review_data, path_str, today);
         }
 
         if !dry {
-            save_record(&review_data, &rev);
+            save_review_data(&review_data, &rev);
         }
 
         return;
     }
 
-    if dry {
-        return;
-    }
-
-    let mut rng = rng();
+    pool.shuffle(&mut rng);
     let mut unique_files = HashSet::new();
     let mut selected = Vec::new();
 
@@ -137,7 +137,9 @@ fn main() {
         modify_review_data(&mut review_data, path_str, today);
     }
 
-    save_record(&review_data, &rev);
+    if !dry {
+        save_review_data(&review_data, &rev);
+    }
 }
 
 fn weight(
@@ -216,7 +218,7 @@ fn load_record(rev: &str) -> HashMap<String, ReviewInfo> {
     }
 }
 
-fn save_record(data: &HashMap<String, ReviewInfo>, rev: &str) {
+fn save_review_data(data: &HashMap<String, ReviewInfo>, rev: &str) {
     if let Ok(json) = serde_json::to_string_pretty(data) {
         let _ = fs::write(rev, json);
     }
