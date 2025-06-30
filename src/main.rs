@@ -76,9 +76,14 @@ fn main() {
     let mut weights = Vec::new();
     let total_days = (md_files.len() as f64 * 2.0 / FILES_PER_DAY as f64).ceil() as i64;
 
-    for file in &md_files {
+    let mut md_files: Vec<(PathBuf, usize)> = md_files
+        .into_iter()
+        .map(|f| (f.clone(), weight(&f, &review_data, today, total_days)))
+        .collect();
+    md_files.sort_by_key(|p| p.1);
+
+    for (file, weight) in &md_files {
         let file_name = file.to_string_lossy().to_string();
-        let weight = weight(file, &review_data, today, total_days);
         let entry = review_data.entry(file_name).or_default();
         println!(
             "{:>3} | {:>10} | {:>2} | {}",
@@ -93,7 +98,7 @@ fn main() {
         if top {
             weights.push((weight, file.clone()));
         } else {
-            for _ in 0..weight {
+            for _ in 0..*weight {
                 pool.push(file.clone());
             }
         }
