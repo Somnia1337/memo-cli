@@ -63,7 +63,7 @@ fn main() {
     let rev = format!(r"D:\Code\Rust\memo\revs\revs-{}.json", subdir);
 
     let today = Local::now().date_naive();
-    let mut review_data: HashMap<String, ReviewInfo> = load_record(&rev);
+    let mut review_data: HashMap<String, ReviewInfo> = load(&rev);
 
     let md_files: Vec<PathBuf> = WalkDir::new(dir)
         .into_iter()
@@ -114,11 +114,11 @@ fn main() {
         for _ in 0..FILES_PER_DAY {
             let file = weights.pop().unwrap().1;
             let path_str = show_link(&file, &review_data);
-            modify_review_data(&mut review_data, path_str, today);
+            modify(&mut review_data, path_str, today);
         }
 
         if !dry {
-            save_review_data(&review_data, &rev);
+            save(&review_data, &rev);
         }
 
         return;
@@ -139,11 +139,11 @@ fn main() {
 
     for file in &selected {
         let path_str = show_link(file, &review_data);
-        modify_review_data(&mut review_data, path_str, today);
+        modify(&mut review_data, path_str, today);
     }
 
     if !dry {
-        save_review_data(&review_data, &rev);
+        save(&review_data, &rev);
     }
 }
 
@@ -198,11 +198,7 @@ fn show_link(file: &Path, review_data: &HashMap<String, ReviewInfo>) -> String {
     path_str
 }
 
-fn modify_review_data(
-    review_data: &mut HashMap<String, ReviewInfo>,
-    path_str: String,
-    today: NaiveDate,
-) {
+fn modify(review_data: &mut HashMap<String, ReviewInfo>, path_str: String, today: NaiveDate) {
     review_data
         .entry(path_str)
         .and_modify(|e| {
@@ -215,16 +211,20 @@ fn modify_review_data(
         });
 }
 
-fn load_record(rev: &str) -> HashMap<String, ReviewInfo> {
-    if let Ok(data) = fs::read_to_string(rev) {
-        serde_json::from_str(&data).unwrap_or_default()
-    } else {
-        HashMap::new()
-    }
+fn load(rev: &str) -> HashMap<String, ReviewInfo> {
+    fs::read_to_string(rev)
+        .ok()
+        .and_then(|data| serde_json::from_str::<Vec<(String, ReviewInfo)>>(&data).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .collect()
 }
 
-fn save_review_data(data: &HashMap<String, ReviewInfo>, rev: &str) {
-    if let Ok(json) = serde_json::to_string_pretty(data) {
+fn save(data: &HashMap<String, ReviewInfo>, rev: &str) {
+    let mut data: Vec<_> = data.iter().collect();
+    data.sort_by_key(|d| d.0);
+
+    if let Ok(json) = serde_json::to_string_pretty(&data) {
         let _ = fs::write(rev, json);
     }
 }
