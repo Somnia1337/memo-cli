@@ -15,6 +15,7 @@ const MINIMUM_WEIGHT: f64 = 1.0;
 const DECAY_RATE: f64 = 0.96;
 
 const VAULT_NAME: &str = "memo";
+const VAULT_PATH: &str = r"D:\Markdown Files\Memo";
 
 #[derive(Parser)]
 #[command(name = "memo", about = "Scientific memorizing helper.")]
@@ -59,8 +60,8 @@ fn main() {
         Commands::Code408 => "408",
     };
 
-    let dir = format!(r"D:\Markdown Files\Memo\{}", subdir);
-    let rev = format!(r"D:\Code\Rust\memo\revs\revs-{}.json", subdir);
+    let dir = format!(r"{}\{}", VAULT_PATH, subdir);
+    let rev = format!(r"{}\revs\revs-{}.json", VAULT_PATH, subdir);
 
     let today = Local::now().date_naive();
     let mut review_data: HashMap<String, ReviewInfo> = load(&rev);
