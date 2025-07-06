@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-07-06
+
+### Added
+
+- Command line arg `--date`: denote an arbitrary date as "today" in the form of "%Y-%m-%d", this might be useful when preparing the notes to memo for the next few days.
+
 ## [0.3.4] - 2025-07-04
 
 ### Changed
@@ -38,7 +44,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Useful args `--dry` and `--top`:
+- Command line args `--dry` and `--top`:
   - `--dry`: show note states, but don't modify review history.
   - `--top`: choose the notes with the highest priorities.
   - These 2 args are compatible.

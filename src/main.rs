@@ -28,6 +28,9 @@ struct Cli {
 
     #[arg(long)]
     top: bool,
+
+    #[arg(long, value_name = "DATE")]
+    date: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -52,7 +55,12 @@ struct ReviewInfo {
 }
 
 fn main() {
-    let Cli { command, dry, top } = Cli::parse();
+    let Cli {
+        command,
+        dry,
+        top,
+        date,
+    } = Cli::parse();
 
     let subdir = match command {
         Commands::Code101 => "101",
@@ -63,7 +71,14 @@ fn main() {
     let dir = format!(r"{}\{}", VAULT_PATH, subdir);
     let rev = format!(r"{}\revs\revs-{}.json", VAULT_PATH, subdir);
 
-    let today = Local::now().date_naive();
+    let today = if let Some(date_str) = date {
+        match NaiveDate::parse_from_str(&date_str, "%Y-%m-%d") {
+            Ok(d) => d,
+            Err(_) => Local::now().date_naive(),
+        }
+    } else {
+        Local::now().date_naive()
+    };
     let mut review_data: HashMap<String, ReviewInfo> = load(&rev);
 
     let md_files: Vec<PathBuf> = WalkDir::new(dir)
