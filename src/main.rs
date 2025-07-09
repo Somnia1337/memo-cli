@@ -101,15 +101,15 @@ fn main() {
     for (file, weight) in &md_files {
         let file_name = file.to_string_lossy().to_string();
         let entry = review_data.entry(file_name).or_default();
-        println!(
-            "{:>3} | {:>10} | {:>2} | {}",
+        print!(
+            "{:>3} | {:>10} | {:>2} | ",
             weight,
             entry
                 .last_reviewed
                 .map_or_else(|| "N/A".to_string(), |date| date.to_string()),
             entry.review_count,
-            file.file_stem().unwrap().to_string_lossy(),
         );
+        show_link(file);
 
         if top {
             weights.push((weight, file.clone()));
@@ -129,7 +129,7 @@ fn main() {
 
         for _ in 0..FILES_PER_DAY {
             let file = weights.pop().unwrap().1;
-            let path_str = show_link(&file, &review_data);
+            let path_str = show_link(&file);
             modify(&mut review_data, path_str, today);
         }
 
@@ -154,7 +154,7 @@ fn main() {
     }
 
     for file in &selected {
-        let path_str = show_link(file, &review_data);
+        let path_str = show_link(file);
         modify(&mut review_data, path_str, today);
     }
 
@@ -193,22 +193,14 @@ fn weight(
     adjusted_weight.round() as usize
 }
 
-fn show_link(file: &Path, review_data: &HashMap<String, ReviewInfo>) -> String {
+fn show_link(file: &Path) -> String {
     let path_str = file.to_string_lossy().to_string();
-    let cur_count = review_data
-        .get(&path_str)
-        .map(|e| e.review_count)
-        .unwrap_or_default()
-        + 1;
 
     if let Some(file_name) = file.file_stem() {
         let file_name = file_name.to_string_lossy();
         let encoded = urlencoding::encode(&file_name);
         let uri = format!("obsidian://open?vault={}&file={}", VAULT_NAME, encoded);
-        println!(
-            "\x1b]8;;{0}\x1b\\{1} ({2})\x1b]8;;\x1b\\",
-            uri, file_name, cur_count
-        );
+        println!("\x1b]8;;{0}\x1b\\{1}\x1b]8;;\x1b\\", uri, file_name);
     }
 
     path_str
