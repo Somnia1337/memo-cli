@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 const FILES_PER_DAY: usize = 3;
+const MAX_OUT_FACTOR: f64 = 2.0;
 const BASIC_WEIGHT: f64 = 10.0;
 const MINIMUM_WEIGHT: f64 = 1.0;
 const DECAY_RATE: f64 = 0.96;
@@ -88,13 +89,12 @@ fn main() {
         .map(|e| e.path().to_path_buf())
         .collect();
 
-    let mut pool = Vec::new();
     let mut weights = Vec::new();
-    let total_days = (md_files.len() as f64 * 2.0 / FILES_PER_DAY as f64).ceil() as i64;
+    let max_out = (md_files.len() as f64 * MAX_OUT_FACTOR / FILES_PER_DAY as f64).ceil() as i64;
 
     let mut md_files: Vec<(PathBuf, usize)> = md_files
         .into_iter()
-        .map(|f| (f.clone(), weight(&f, &review_data, today, total_days)))
+        .map(|f| (f.clone(), weight(&f, &review_data, today, max_out)))
         .collect();
     md_files.sort_by_key(|p| p.1);
 
@@ -111,26 +111,21 @@ fn main() {
         );
         show_link(file);
 
-        if top {
-            weights.push((weight, file.clone()));
-        } else {
-            for _ in 0..*weight {
-                pool.push(file.clone());
-            }
-        }
+        weights.push((weight, file.clone()));
     }
 
     println!();
     let mut rng = rng();
 
     if top {
-        weights.shuffle(&mut rng);
         weights.sort_unstable_by_key(|w| w.0);
 
         for _ in 0..FILES_PER_DAY {
             let file = weights.pop().unwrap().1;
             let path_str = show_link(&file);
-            modify(&mut review_data, path_str, today);
+            if !dry {
+                modify(&mut review_data, path_str, today);
+            }
         }
 
         if !dry {
@@ -140,22 +135,27 @@ fn main() {
         return;
     }
 
-    pool.shuffle(&mut rng);
-    let mut unique_files = HashSet::new();
-    let mut selected = Vec::new();
-
-    for file in pool.choose_multiple(&mut rng, pool.len()) {
-        if unique_files.insert(file) {
-            selected.push(file.clone());
-            if selected.len() == FILES_PER_DAY {
-                break;
-            }
+    let mut pool = Vec::new();
+    for (w, f) in weights {
+        for _ in 0..*w {
+            pool.push(f.clone());
         }
     }
 
-    for file in &selected {
+    pool.shuffle(&mut rng);
+    let mut selected = HashSet::new();
+
+    for file in pool.choose_multiple(&mut rng, pool.len()) {
+        if selected.insert(file) && selected.len() == FILES_PER_DAY {
+            break;
+        }
+    }
+
+    for file in selected {
         let path_str = show_link(file);
-        modify(&mut review_data, path_str, today);
+        if !dry {
+            modify(&mut review_data, path_str, today);
+        }
     }
 
     if !dry {
@@ -167,7 +167,7 @@ fn weight(
     file: &Path,
     review_data: &HashMap<String, ReviewInfo>,
     today: NaiveDate,
-    total_days: i64,
+    max_out: i64,
 ) -> usize {
     let path_str = file.to_string_lossy().to_string();
     let info = review_data.get(&path_str);
@@ -177,7 +177,7 @@ fn weight(
     let priority_score = if review_count == 0 {
         100.0
     } else {
-        let days_since_last = last_review.map_or(total_days, |d| (today - d).num_days().max(0));
+        let days_since_last = last_review.map_or(max_out, |d| (today - d).num_days().max(0));
         let retention = DECAY_RATE.powi(days_since_last as i32);
         (1.0 - retention) * 100.0
     };
@@ -210,8 +210,8 @@ fn modify(review_data: &mut HashMap<String, ReviewInfo>, path_str: String, today
     review_data
         .entry(path_str)
         .and_modify(|e| {
-            e.review_count += 1;
             e.last_reviewed = Some(today);
+            e.review_count += 1;
         })
         .or_insert(ReviewInfo {
             last_reviewed: Some(today),
